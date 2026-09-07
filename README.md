@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="Icon.png" width="20%" height="20%" alt="AppStoreFix icon">
+  <img width="120" height="120" alt="AppStoreFixIcon" src="https://github.com/user-attachments/assets/02ddd78d-0fcd-441d-aede-1d468010853e" />
   <h1>AppStoreFix</h1>
 </div>
 
