@@ -1,0 +1,22 @@
+#!/bin/sh
+
+MIRROR_IP="160.251.176.244"
+HOSTS_FILE="/etc/hosts"
+
+if ! /bin/grep -q "^[[:space:]]*${MIRROR_IP}[[:space:]]\+phobos\.apple\.com\([[:space:]]\|$\)" "$HOSTS_FILE" 2>/dev/null; then
+    /bin/echo "Adding phobos.apple.com to hosts file..."
+    /bin/echo "${MIRROR_IP}    phobos.apple.com" >> "$HOSTS_FILE"
+else
+    /bin/echo "phobos.apple.com compatibility route is already present."
+fi
+
+if ! /bin/grep -q "^[[:space:]]*${MIRROR_IP}[[:space:]]\+ax\.init\.itunes\.apple\.com\([[:space:]]\|$\)" "$HOSTS_FILE" 2>/dev/null; then
+    /bin/echo "Adding ax.init.itunes.apple.com to hosts file..."
+    /bin/echo "${MIRROR_IP}    ax.init.itunes.apple.com" >> "$HOSTS_FILE"
+else
+    /bin/echo "ax.init.itunes.apple.com compatibility route is already present."
+fi
+
+/bin/echo "Please reboot the device, otherwise some pages may not load properly."
+
+exit 0

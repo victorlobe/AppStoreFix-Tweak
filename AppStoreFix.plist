@@ -1,0 +1,11 @@
+{
+    Filter = {
+        Bundles = (
+            "com.apple.AppStore",
+            "com.apple.MobileStore"
+        );
+        Executables = (
+            "itunesstored"
+        );
+    };
+}

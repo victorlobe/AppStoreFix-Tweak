@@ -1,0 +1,16 @@
+#!/bin/sh
+
+HOSTS_FILE="/etc/hosts"
+
+/bin/echo "Removing changes from the hosts file..."
+if /bin/sed -i -e '/[[:space:]]phobos\.apple\.com[[:space:]]*$/d' "$HOSTS_FILE" 2>/dev/null; then
+    /bin/echo "Removed the phobos.apple.com route."
+else
+    /bin/echo "Could not remove the phobos.apple.com route."
+fi
+if /bin/sed -i -e '/[[:space:]]ax\.init\.itunes\.apple\.com[[:space:]]*$/d' "$HOSTS_FILE" 2>/dev/null; then
+    /bin/echo "Removed the ax.init.itunes.apple.com route."
+else
+    /bin/echo "Could not remove the ax.init.itunes.apple.com route."
+fi
+exit 0
