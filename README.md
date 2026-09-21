@@ -3,7 +3,7 @@
   <h1>AppStoreFix</h1>
 </div>
 
-An iOS tweak that restores App Store functionality on iOS 6 by fixing connectivity, login, and storefront issues.
+An iOS tweak that restores App Store functionality on iOS 3, 5 and 6 by fixing connectivity, login, and storefront issues.
 
 ## What it fixes
 
@@ -18,7 +18,7 @@ An iOS tweak that restores App Store functionality on iOS 6 by fixing connectivi
 
 ## Requirements
 
-- iOS 6.0 through 6.1.6
+- iOS 3, 5 or 6
 - A jailbroken device
 
 ## Installation
@@ -26,6 +26,11 @@ An iOS tweak that restores App Store functionality on iOS 6 by fixing connectivi
 Download and install the latest package through Cydia using my repository:
 
 <http://repo.victorlobe.me>
+
+iOS 6: Just install the tweak and reboot your device.
+iOS 5: Experimental support. You need StoreLoginFix for login and StoreEtcFix to fix some pages that fail to load. Both are available from cydia.nekokawa.net.
+iOS 4: Not working at the moment.
+iOS 3: Experimental support. You need StoreLoginFix for login and StoreEtcFix to fix some pages that fail to load. Both are available from cydia.nekokawa.net.
 
 ## Building from source
 
@@ -50,6 +55,18 @@ Older App Store clients still request Store domains, paths, storefront resources
 
 ## Changelog
 
+### v1.0.2
+
+- Improve App Store authentication URL matching.
+- Remove package conflicts for net.nekokawa.storeetcfix, net.nekokawa.storeloginfix, net.nekokawa.storesslfix.
+- Updated description to mirror experimental iOS 3 and 5 support.
+
+### v1.0.1
+
+- Fixed hosts file cleanup on uninstall to preserve unrelated existing entries.
+- Added a managed AppStoreFix hosts block and migration logic for upgrades from older versions.
+- Added backups of the hosts file before installation, migration, and removal.
+
 ### v1.0.0
 
 - Initial release
@@ -57,6 +74,7 @@ Older App Store clients still request Store domains, paths, storefront resources
 ## Credits
 
 Special thanks to Requis, Bag.xml, and nekokawa. Their work on iTunesStoreX and AppStoreFix provided valuable technical reference during development.
+Another special thanks to drip_icon on Discord for discovering that this works on iOS 3, and to f3ar4future on Discord for discovering that this works on iOS 5.
 
 ## Author
 
