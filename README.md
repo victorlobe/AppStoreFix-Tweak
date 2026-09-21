@@ -28,9 +28,13 @@ Download and install the latest package through Cydia using my repository:
 <http://repo.victorlobe.me>
 
 iOS 6: Just install the tweak and reboot your device.
+
 iOS 5: Experimental support. You need StoreLoginFix for login and StoreEtcFix to fix some pages that fail to load. Both are available from cydia.nekokawa.net.
+
 iOS 4: Not working at the moment.
+
 iOS 3: Experimental support. You need StoreLoginFix for login and StoreEtcFix to fix some pages that fail to load. Both are available from cydia.nekokawa.net.
+
 
 ## Building from source
 
@@ -74,6 +78,7 @@ Older App Store clients still request Store domains, paths, storefront resources
 ## Credits
 
 Special thanks to Requis, Bag.xml, and nekokawa. Their work on iTunesStoreX and AppStoreFix provided valuable technical reference during development.
+
 Another special thanks to drip_icon on Discord for discovering that this works on iOS 3, and to f3ar4future on Discord for discovering that this works on iOS 5.
 
 ## Author
