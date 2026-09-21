@@ -1,6 +1,6 @@
 Package: com.victorlobe.appstorefix
 Name: AppStoreFix
-Version: 1
+Version: 1.0.1
 Architecture: iphoneos-arm
 Description: Fix the App Store on iOS 6!
 Maintainer: Victor <contact@victorlobe.me>

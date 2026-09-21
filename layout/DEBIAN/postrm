@@ -1,16 +1,39 @@
 #!/bin/sh
 
 HOSTS_FILE="/etc/hosts"
+PREREMOVE_BACKUP_FILE="/etc/hosts.appstorefix.preremove.backup"
+BEGIN_PATTERN='^[[:space:]]*# BEGIN AppStoreFix[[:space:]]*$'
+END_PATTERN='^[[:space:]]*# END AppStoreFix[[:space:]]*$'
+
+
+
+
+has_complete_block() {
+    /bin/sed -n "/$BEGIN_PATTERN/,/$END_PATTERN/{/$END_PATTERN/p;}" "$HOSTS_FILE" 2>/dev/null | /bin/grep -q .
+}
+
+create_preremove_backup() {
+    if [ -f "$HOSTS_FILE" ]; then
+        /bin/echo "Creating preremove backup of the hosts file at $PREREMOVE_BACKUP_FILE..."
+        if ! /bin/cp -p "$HOSTS_FILE" "$PREREMOVE_BACKUP_FILE"; then
+            /bin/echo "Could not create the preremove backup of the hosts file." >&2
+            return 1
+        fi
+    fi
+    return 0
+}
+
 
 /bin/echo "Removing changes from the hosts file..."
-if /bin/sed -i -e '/[[:space:]]phobos\.apple\.com[[:space:]]*$/d' "$HOSTS_FILE" 2>/dev/null; then
-    /bin/echo "Removed the phobos.apple.com route."
+if has_complete_block; then
+    if ! create_preremove_backup; then
+        exit 1
+    elif /bin/sed -i -e "/$BEGIN_PATTERN/,/$END_PATTERN/d" "$HOSTS_FILE" 2>/dev/null; then
+        /bin/echo "Removed the AppStoreFix hosts block."
+    else
+        /bin/echo "Could not remove the AppStoreFix hosts block."
+    fi
 else
-    /bin/echo "Could not remove the phobos.apple.com route."
-fi
-if /bin/sed -i -e '/[[:space:]]ax\.init\.itunes\.apple\.com[[:space:]]*$/d' "$HOSTS_FILE" 2>/dev/null; then
-    /bin/echo "Removed the ax.init.itunes.apple.com route."
-else
-    /bin/echo "Could not remove the ax.init.itunes.apple.com route."
+    /bin/echo "No complete AppStoreFix hosts block found. Leaving the hosts file unchanged."
 fi
 exit 0

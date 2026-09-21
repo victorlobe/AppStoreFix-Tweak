@@ -2,21 +2,64 @@
 
 MIRROR_IP="160.251.176.244"
 HOSTS_FILE="/etc/hosts"
+BACKUP_FILE="/etc/hosts.appstorefix.backup"
+PREVIOUS_VERSION="${2:-}"
+BEGIN_MARKER="# BEGIN AppStoreFix"
+END_MARKER="# END AppStoreFix"
+BEGIN_PATTERN='^[[:space:]]*# BEGIN AppStoreFix[[:space:]]*$'
+END_PATTERN='^[[:space:]]*# END AppStoreFix[[:space:]]*$'
+LEGACY_PHOBOS_PATTERN='^[[:space:]]*160\.251\.176\.244[[:space:]]\+phobos\.apple\.com[[:space:]]*$'
+LEGACY_AX_PATTERN='^[[:space:]]*160\.251\.176\.244[[:space:]]\+ax\.init\.itunes\.apple\.com[[:space:]]*$'
 
-if ! /bin/grep -q "^[[:space:]]*${MIRROR_IP}[[:space:]]\+phobos\.apple\.com\([[:space:]]\|$\)" "$HOSTS_FILE" 2>/dev/null; then
-    /bin/echo "Adding phobos.apple.com to hosts file..."
-    /bin/echo "${MIRROR_IP}    phobos.apple.com" >> "$HOSTS_FILE"
+
+
+
+has_complete_block() {
+    /bin/sed -n "/$BEGIN_PATTERN/,/$END_PATTERN/{/$END_PATTERN/p;}" "$HOSTS_FILE" 2>/dev/null | /bin/grep -q .
+}
+
+
+create_backup() {
+    if [ -f "$HOSTS_FILE" ] && [ ! -e "$BACKUP_FILE" ]; then
+        /bin/echo "Creating backup of the hosts file at $BACKUP_FILE..."
+        if ! /bin/cp -p "$HOSTS_FILE" "$BACKUP_FILE"; then
+            /bin/echo "Could not create a backup of the hosts file." >&2
+            return 1
+        fi
+    fi
+    return 0
+}
+
+if ! has_complete_block; then
+    if ! create_backup; then
+        exit 1
+    fi
+
+    MIGRATE_LEGACY=0
+    if [ -n "$PREVIOUS_VERSION" ] \
+        && { /bin/grep -q "$LEGACY_PHOBOS_PATTERN" "$HOSTS_FILE" 2>/dev/null \
+            || /bin/grep -q "$LEGACY_AX_PATTERN" "$HOSTS_FILE" 2>/dev/null; }; then
+        MIGRATE_LEGACY=1
+        /bin/echo "Migrating legacy AppStoreFix hosts entries..."
+    else
+        /bin/echo "Adding AppStoreFix routes to hosts file..."
+    fi
+
+    if ! printf '\n%s\n%s    phobos.apple.com\n%s    ax.init.itunes.apple.com\n%s\n' \
+        "$BEGIN_MARKER" "$MIRROR_IP" "$MIRROR_IP" "$END_MARKER" >> "$HOSTS_FILE"; then
+        /bin/echo "Could not add AppStoreFix routes to the hosts file." >&2
+        exit 1
+    fi
+
+    if [ "$MIGRATE_LEGACY" -eq 1 ] \
+        && ! /bin/sed -i -e "1,/$BEGIN_PATTERN/ { /$LEGACY_PHOBOS_PATTERN/d; /$LEGACY_AX_PATTERN/d; }" "$HOSTS_FILE" 2>/dev/null; then
+        /bin/echo "Could not remove the legacy AppStoreFix hosts entries." >&2
+        exit 1
+    fi
 else
-    /bin/echo "phobos.apple.com compatibility route is already present."
+    /bin/echo "AppStoreFix hosts block is already present."
 fi
 
-if ! /bin/grep -q "^[[:space:]]*${MIRROR_IP}[[:space:]]\+ax\.init\.itunes\.apple\.com\([[:space:]]\|$\)" "$HOSTS_FILE" 2>/dev/null; then
-    /bin/echo "Adding ax.init.itunes.apple.com to hosts file..."
-    /bin/echo "${MIRROR_IP}    ax.init.itunes.apple.com" >> "$HOSTS_FILE"
-else
-    /bin/echo "ax.init.itunes.apple.com compatibility route is already present."
-fi
-
-/bin/echo "Please reboot the device, otherwise some pages may not load properly."
+/bin/echo "Please reboot your device!"
 
 exit 0
