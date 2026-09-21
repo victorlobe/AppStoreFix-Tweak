@@ -40,8 +40,16 @@ static OSStatus ASFXSSLHandshake(SSLContextRef context) {
 - (id)newRequestWithURL:(NSURL *)url {
     NSURL *rewritten = ASFXStoreURLForRequest(url);
     NSMutableURLRequest *request = %orig(rewritten);
-    NSString *absolute = [[request URL] absoluteString];
-    if ([absolute isEqualToString:@"https://p23-buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/authenticate"]) {
+
+
+    NSURL *requestURL = [request URL];
+    NSString *host = [[requestURL host] lowercaseString];
+    NSString *path = [requestURL path];
+    BOOL isBuyHost = [host hasSuffix:@"-buy.itunes.apple.com"];
+
+    BOOL isAuthenticatePath = [path isEqualToString:@"/WebObjects/MZFinance.woa/wa/authenticate"];
+ 
+    if (isBuyHost && isAuthenticatePath) {
         request = ASFXPrepareLoginRequest(request);
     }
     return request;
