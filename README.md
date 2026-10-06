@@ -1,5 +1,5 @@
 <div align="center">
-  <img width="120" height="120" alt="AppStoreFixIcon" src="https://github.com/user-attachments/assets/02ddd78d-0fcd-441d-aede-1d468010853e" />
+  <img src="Icon.png" width="20%" height="20%" alt="AppStoreFix icon">
   <h1>AppStoreFix</h1>
 </div>
 
@@ -12,6 +12,7 @@ An iOS tweak that restores App Store functionality on iOS 3, 5 and 6 by fixing c
 - Repairs legacy search requests and the storefront identifier used by older clients
 - Adds the missing form content type for older product purchase requests
 - Relays older storefront bootstrap resources to their newer equivalents
+- Keeps the original buy button (`GET`) of each iOS version: the image slice button on iOS 5 and below, the gradient canvas button on iOS 6 and the flat button on iOS 7
 - Patches storefront JavaScript that is incompatible with the older WebKit client
 - Restores compatibility with the Store URL bag and its certificate data
 - Enables TLS 1.0 through TLS 1.2 for the legacy Store connection path
@@ -26,15 +27,6 @@ An iOS tweak that restores App Store functionality on iOS 3, 5 and 6 by fixing c
 Download and install the latest package through Cydia using my repository:
 
 <http://repo.victorlobe.me>
-
-iOS 6: Just install the tweak and reboot your device.
-
-iOS 5: Experimental support. You need StoreLoginFix for login and StoreEtcFix to fix some pages that fail to load. Both are available from cydia.nekokawa.net.
-
-iOS 4: Not working at the moment.
-
-iOS 3: Experimental support. You need StoreLoginFix for login and StoreEtcFix to fix some pages that fail to load. Both are available from cydia.nekokawa.net.
-
 
 ## Building from source
 
@@ -59,18 +51,6 @@ Older App Store clients still request Store domains, paths, storefront resources
 
 ## Changelog
 
-### v1.0.2
-
-- Improve App Store authentication URL matching.
-- Remove package conflicts for net.nekokawa.storeetcfix, net.nekokawa.storeloginfix, net.nekokawa.storesslfix.
-- Updated description to mirror experimental iOS 3 and 5 support.
-
-### v1.0.1
-
-- Fixed hosts file cleanup on uninstall to preserve unrelated existing entries.
-- Added a managed AppStoreFix hosts block and migration logic for upgrades from older versions.
-- Added backups of the hosts file before installation, migration, and removal.
-
 ### v1.0.0
 
 - Initial release
@@ -78,8 +58,6 @@ Older App Store clients still request Store domains, paths, storefront resources
 ## Credits
 
 Special thanks to Requis, Bag.xml, and nekokawa. Their work on iTunesStoreX and AppStoreFix provided valuable technical reference during development.
-
-Another special thanks to drip_icon on Discord for discovering that this works on iOS 3, and to f3ar4future on Discord for discovering that this works on iOS 5.
 
 ## Author
 

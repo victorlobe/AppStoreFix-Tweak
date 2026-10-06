@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>items</key>
+	<array>
+		<dict>
+			<key>cell</key>
+			<string>PSButtonCell</string>
+			<key>label</key>
+			<string>AppStoreFix</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>label</key>
+			<string>Tabs</string>
+			<key>footerText</key>
+			<string>Apple has shut down Genius, so the tab only shows "Bad Gateway". Restart the App Store to apply.</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>label</key>
+			<string>Hide Genius tab (iOS 6+)</string>
+			<key>key</key>
+			<string>HideGeniusTab</string>
+			<key>defaults</key>
+			<string>com.victorlobe.appstorefix</string>
+			<key>default</key>
+			<false/>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>isStaticText</key>
+			<true/>
+			<key>footerText</key>
+			<string>Made with ❤️ by Victor Lobe</string>
+		</dict>
+	</array>
+	<key>title</key>
+	<string>AppStoreFix</string>
+</dict>
+</plist>

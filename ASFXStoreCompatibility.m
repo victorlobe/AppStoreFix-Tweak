@@ -98,22 +98,120 @@ NSMutableURLRequest *ASFXPrepareLoginRequest(NSMutableURLRequest *request) {
     }
 
     NSURL *loginURL = [NSURL URLWithString:@"https://auth.itunes.apple.com/auth/v1/native/fast"];
+    if (loginURL == nil) {
+        return request;
+    }
+
+    // Credentials arrive in query on older clients but in POST body on iOS 6
     NSString *query = [[request URL] query];
-    if (loginURL == nil || [query length] == 0) {
+    NSData *body = [request HTTPBody];
+    NSString *bodyString = [body length] != 0
+        ? [[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding]
+        : nil;
+    BOOL bodyIsPropertyList = [bodyString hasPrefix:@"<?xml"] ||
+        (body != nil && [body length] >= 6 && memcmp([body bytes], "bplist", 6) == 0);
+
+    NSData *loginBody = nil;
+    if ([query length] != 0) {
+        loginBody = [ASFXLoginPropertyList(query) dataUsingEncoding:NSUTF8StringEncoding];
+    } else if (bodyIsPropertyList) {
+        loginBody = body;
+    } else if ([bodyString length] != 0) {
+        loginBody = [ASFXLoginPropertyList(bodyString) dataUsingEncoding:NSUTF8StringEncoding];
+    }
+
+    if (loginBody == nil) {
+        NSLog(@"[AppStoreFix] login request has no credentials yet, leaving it untouched");
         return request;
     }
 
     [request setURL:loginURL];
     [request setHTTPMethod:@"POST"];
-    [request setHTTPBody:[ASFXLoginPropertyList(query) dataUsingEncoding:NSUTF8StringEncoding]];
+    [request setHTTPBody:loginBody];
+    // Thank you Pod
+    [request setValue:@"iBooks/1.18 (Macintosh; OS X 10.9.5) AppleWebKit/537.78.2"
+   forHTTPHeaderField:@"User-Agent"];
 
     NSLog(@"[AppStoreFix] login endpoint rewritten to %@", loginURL);
     return request;
 }
 
+BOOL ASFXIsLoginURL(NSURL *url) {
+    return [[[url host] lowercaseString] isEqualToString:@"auth.itunes.apple.com"];
+}
+
+static const double ASFXCoreFoundationVersionIOS4 = 550.32;
+static const double ASFXCoreFoundationVersionIOS6 = 793.00;
+
+
+static NSString *ASFXNativeStoreFrontPlatform(void) {
+    if (kCFCoreFoundationVersionNumber >= ASFXCoreFoundationVersionIOS6) {
+        return @",16";
+    }
+    if (kCFCoreFoundationVersionNumber >= ASFXCoreFoundationVersionIOS4) {
+        return @",2";
+    }
+    return @",4";
+}
+
+
+
+NSString *ASFXRepairStoreFront(NSString *storeFront) {
+    NSRange platform = [storeFront rangeOfString:@",22"];
+    if (platform.location == NSNotFound) {
+        return storeFront;
+    }
+
+    NSUInteger end = NSMaxRange(platform);
+    if (end < [storeFront length] &&
+        [[NSCharacterSet decimalDigitCharacterSet] characterIsMember:[storeFront characterAtIndex:end]]) {
+        return storeFront;
+    }
+
+    return [storeFront stringByReplacingCharactersInRange:platform withString:ASFXNativeStoreFrontPlatform()];
+}
+
+NSURLResponse *ASFXPrepareLoginResponse(NSURLResponse *response) {
+    if (![response isKindOfClass:[NSHTTPURLResponse class]]) {
+        return response;
+    }
+
+    NSHTTPURLResponse *http = (NSHTTPURLResponse *)response;
+    NSMutableDictionary *headers = [[http allHeaderFields] mutableCopy];
+    BOOL changed = NO;
+    for (NSString *key in [headers allKeys]) {
+        if ([key caseInsensitiveCompare:@"X-Set-Apple-Store-Front"] != NSOrderedSame) {
+            continue;
+        }
+
+        NSString *storeFront = [headers objectForKey:key];
+        NSString *repaired = ASFXRepairStoreFront(storeFront);
+        if (![repaired isEqualToString:storeFront]) {
+            [headers setObject:repaired forKey:key];
+            changed = YES;
+            NSLog(@"[AppStoreFix] login storefront %@ -> %@", storeFront, repaired);
+        }
+    }
+
+    if (!changed) {
+        return response;
+    }
+
+    return [[NSHTTPURLResponse alloc] initWithURL:[http URL]
+                                       statusCode:[http statusCode]
+                                      HTTPVersion:@"HTTP/1.1"
+                                     headerFields:headers] ?: response;
+}
+
 NSMutableURLRequest *ASFXPrepareStoreRequest(NSMutableURLRequest *request) {
     if (![request isKindOfClass:[NSMutableURLRequest class]]) {
         return request;
+    }
+
+    NSString *requestStoreFront = [request valueForHTTPHeaderField:@"X-Apple-Store-Front"];
+    NSString *repairedStoreFront = ASFXRepairStoreFront(requestStoreFront);
+    if (requestStoreFront != nil && ![repairedStoreFront isEqualToString:requestStoreFront]) {
+        [request setValue:repairedStoreFront forHTTPHeaderField:@"X-Apple-Store-Front"];
     }
 
     NSURL *url = [request URL];
@@ -145,6 +243,112 @@ NSMutableURLRequest *ASFXPrepareStoreRequest(NSMutableURLRequest *request) {
     return request;
 }
 
+static BOOL ASFXPreferenceEnabled(NSString *key) {
+    NSDictionary *prefs = [NSDictionary dictionaryWithContentsOfFile:
+        @"/var/mobile/Library/Preferences/com.victorlobe.appstorefix.plist"];
+    return [[prefs objectForKey:key] boolValue];
+}
+
+static BOOL ASFXIsGeniusTab(id tab) {
+    if (![tab isKindOfClass:[NSDictionary class]]) {
+        return NO;
+    }
+
+    return [[tab objectForKey:@"canonical-name"] isEqual:@"genius"] ||
+        [[tab objectForKey:@"url-bag-key"] isEqual:@"p2-panda-appRecommendations"];
+}
+
+
+// For Genius
+static NSArray *ASFXSectionIdentifiers(NSDictionary *dictionary) {
+    id tabs = [dictionary objectForKey:@"tabs"];
+    if ([tabs isKindOfClass:[NSDictionary class]]) {
+        return ASFXSectionIdentifiers(tabs);
+    }
+    if (![tabs isKindOfClass:[NSArray class]]) {
+        return nil;
+    }
+
+    NSMutableArray *identifiers = [NSMutableArray array];
+    for (id tab in tabs) {
+        id identifier = [tab isKindOfClass:[NSDictionary class]] ? [tab objectForKey:@"canonical-name"] : nil;
+        if ([identifier isKindOfClass:[NSString class]]) {
+            [identifiers addObject:identifier];
+        }
+    }
+    return identifiers;
+}
+
+
+static void ASFXResetStaleTabOrdering(NSDictionary *dictionary) {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSArray *ordering = [defaults arrayForKey:@"SURootSections"];
+    NSArray *identifiers = ASFXSectionIdentifiers(dictionary);
+    if (ordering == nil || [identifiers count] == 0 || [ordering isEqualToArray:identifiers]) {
+        return;
+    }
+    if (![ordering containsObject:@"genius"] && ![identifiers containsObject:@"genius"]) {
+        return;
+    }
+
+    [defaults removeObjectForKey:@"SURootSections"];
+    [defaults synchronize];
+    NSLog(@"[AppStoreFix] tab ordering reset: %@ -> %@",
+          [ordering componentsJoinedByString:@","], [identifiers componentsJoinedByString:@","]);
+}
+
+
+
+static void ASFXResetGeniusNavigationPath(void) {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSData *path = [defaults dataForKey:@"SUSectionNavigationPath"];
+    NSData *genius = [@"p2-panda-appRecommendations" dataUsingEncoding:NSUTF8StringEncoding];
+    if (path == nil || [path rangeOfData:genius options:0 range:NSMakeRange(0, [path length])].location == NSNotFound) {
+        return;
+    }
+    
+    
+    [defaults removeObjectForKey:@"SUSectionNavigationPath"];
+    [defaults synchronize];
+    NSLog(@"[AppStoreFix] saved Genius page dropped");
+}
+
+NSDictionary *ASFXPrepareStoreSectionsDictionary(NSDictionary *dictionary) {
+    if (![dictionary isKindOfClass:[NSDictionary class]]) {
+        return dictionary;
+    }
+    if (!ASFXPreferenceEnabled(@"HideGeniusTab")) {
+        ASFXResetStaleTabOrdering(dictionary);
+        return dictionary;
+    }
+    
+    id tabs = [dictionary objectForKey:@"tabs"];
+    id filteredTabs = tabs;
+    if ([tabs isKindOfClass:[NSDictionary class]]) {
+        filteredTabs = ASFXPrepareStoreSectionsDictionary(tabs);
+    } else if ([tabs isKindOfClass:[NSArray class]]) {
+        NSIndexSet *genius = [tabs indexesOfObjectsPassingTest:^BOOL(id tab, NSUInteger index, BOOL *stop) {
+            return ASFXIsGeniusTab(tab);
+        }];
+        if ([genius count] != 0) {
+            NSMutableArray *remaining = [tabs mutableCopy];
+            [remaining removeObjectsAtIndexes:genius];
+            filteredTabs = remaining;
+            NSLog(@"[AppStoreFix] Genius tab hidden");
+        }
+    }
+
+    if (filteredTabs == tabs) {
+        return dictionary;
+    }
+
+    NSMutableDictionary *filtered = [dictionary mutableCopy];
+    [filtered setObject:filteredTabs forKey:@"tabs"];
+    ASFXResetStaleTabOrdering(filtered);
+    ASFXResetGeniusNavigationPath();
+    return filtered;
+}
+
 static BOOL ASFXDictionaryLooksLikeStoreBag(NSDictionary *dictionary) {
     if (dictionary == nil) {
         return NO;
@@ -163,7 +367,7 @@ static BOOL ASFXDictionaryLooksLikeStoreBag(NSDictionary *dictionary) {
             return YES;
         }
     }
-
+    
     return NO;
 }
 
@@ -206,6 +410,7 @@ BOOL ASFXLooksLikeStoreURLBagData(id data) {
 }
 
 NSDictionary *ASFXPrepareStoreURLBag(NSDictionary *bag) {
+    
     if (![bag isKindOfClass:[NSDictionary class]]) {
         return bag;
     }

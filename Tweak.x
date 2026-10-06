@@ -60,6 +60,13 @@ static OSStatus ASFXSSLHandshake(SSLContextRef context) {
     return %orig(rewritten);
 }
 
+- (void)connection:(NSURLConnection *)connection didReceiveResponse:(NSURLResponse *)response {
+    if (ASFXIsLoginURL([response URL])) {
+        response = ASFXPrepareLoginResponse(response);
+    }
+    %orig(connection, response);
+}
+
 - (BOOL)_isTrustExtendedValidation:(SecTrustRef)trust {
     if (!trust) {
         return NO;
@@ -104,6 +111,52 @@ static OSStatus ASFXSSLHandshake(SSLContextRef context) {
 - (void)operation:(id)operation finishedWithOutput:(NSDictionary *)outputBag {
     NSDictionary *preparedBag = ASFXPrepareStoreURLBag(outputBag);
     %orig(operation, preparedBag);
+}
+
+%end
+
+%hook SUSectionsResponse
+
+- (id)_newSectionsFromDictionary:(NSDictionary *)dictionary {
+    return %orig(ASFXPrepareStoreSectionsDictionary(dictionary));
+}
+
+%end
+
+%hook SSAccount
+
+- (NSString *)storeFrontIdentifier {
+    return ASFXRepairStoreFront(%orig);
+}
+
+- (void)setStoreFrontIdentifier:(NSString *)storeFront {
+    %orig(ASFXRepairStoreFront(storeFront));
+}
+
+%end
+
+%hook SSDevice
+
+- (NSString *)storeFrontIdentifier {
+    return ASFXRepairStoreFront(%orig);
+}
+
+%end
+
+%hook NSMutableURLRequest
+
+- (void)setValue:(NSString *)value forHTTPHeaderField:(NSString *)field {
+    if ([field caseInsensitiveCompare:@"X-Apple-Store-Front"] == NSOrderedSame) {
+        value = ASFXRepairStoreFront(value);
+    }
+    %orig(value, field);
+}
+
+- (void)addValue:(NSString *)value forHTTPHeaderField:(NSString *)field {
+    if ([field caseInsensitiveCompare:@"X-Apple-Store-Front"] == NSOrderedSame) {
+        value = ASFXRepairStoreFront(value);
+    }
+    %orig(value, field);
 }
 
 %end

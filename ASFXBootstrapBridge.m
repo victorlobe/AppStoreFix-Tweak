@@ -2,6 +2,7 @@
 
 
 static NSString * const ASFXRelayMarker = @"com.victorlobe.appstorefix.storefront-relay";
+static const double ASFXCoreFoundationVersionIOS7 = 847.20;
 
 static BOOL ASFXIsStorefrontHost(NSString *host) {
     return [host isEqualToString:@"itunes.apple.com"] ||
@@ -26,6 +27,72 @@ static NSData *ASFXPatchStorefrontScript(NSData *data) {
         withString:@"if(t)if(typeof t==\"string\")if(true)e.innerHTML=t;"];
     NSData *result = [patched dataUsingEncoding:NSUTF8StringEncoding];
     return result ?: data;
+}
+
+// iOS 7+
+static BOOL ASFXUsesLegacyBuyButton(void) {
+    return kCFCoreFoundationVersionNumber < ASFXCoreFoundationVersionIOS7;
+}
+
+static NSRange ASFXBuyButtonClassRange(NSData *script) {
+    NSData *start = [@"iTSBuyButton=function(e,t,n){" dataUsingEncoding:NSUTF8StringEncoding];
+    NSData *end = [@",DV6CanvasUtil=function(){}" dataUsingEncoding:NSUTF8StringEncoding];
+    NSRange startRange = [script rangeOfData:start options:0 range:NSMakeRange(0, [script length])];
+    if (startRange.location == NSNotFound)
+        return startRange;
+
+    NSRange tail = NSMakeRange(startRange.location, [script length] - startRange.location);
+    NSRange endRange = [script rangeOfData:end options:0 range:tail];
+    if (endRange.location == NSNotFound)
+        return endRange;
+
+    return NSMakeRange(startRange.location, endRange.location - startRange.location);
+}
+
+
+static NSData *ASFXScriptWithLegacyBuyButton(NSData *script, NSData *legacyScript) {
+    NSRange classRange = ASFXBuyButtonClassRange(script);
+    NSRange legacyClassRange = ASFXBuyButtonClassRange(legacyScript);
+    if (classRange.location == NSNotFound || legacyClassRange.location == NSNotFound)
+        return nil;
+
+    NSData *prefix = [@",function(_asfxModernBuyButton){"
+                       "typeof inner==\"undefined\"&&(window.inner=null);"
+        dataUsingEncoding:NSUTF8StringEncoding];
+    NSData *suffix = [@";for(var _asfxKey in _asfxModernBuyButton)"
+                       "_asfxKey in iTSBuyButton||(iTSBuyButton[_asfxKey]=_asfxModernBuyButton[_asfxKey])"
+                       "}(iTSBuyButton)"
+        dataUsingEncoding:NSUTF8StringEncoding];
+
+    NSUInteger insertion = NSMaxRange(classRange);
+    NSMutableData *merged = [NSMutableData dataWithCapacity:
+        [script length] + [prefix length] + legacyClassRange.length + [suffix length]];
+    [merged appendData:[script subdataWithRange:NSMakeRange(0, insertion)]];
+    [merged appendData:prefix];
+    [merged appendData:[legacyScript subdataWithRange:legacyClassRange]];
+    [merged appendData:suffix];
+    [merged appendData:[script subdataWithRange:NSMakeRange(insertion, [script length] - insertion)]];
+    return merged;
+}
+
+static NSURLResponse *ASFXResponseWithBodyLength(NSURLResponse *response, NSUInteger length) {
+    if (![response isKindOfClass:[NSHTTPURLResponse class]])
+        return response;
+
+    NSHTTPURLResponse *http = (NSHTTPURLResponse *)response;
+    NSMutableDictionary *headers = [NSMutableDictionary dictionary];
+    [[http allHeaderFields] enumerateKeysAndObjectsUsingBlock:^(id key, id value, BOOL *stop) {
+        NSString *name = [key lowercaseString];
+        if (![name isEqualToString:@"content-length"] && ![name isEqualToString:@"content-encoding"])
+            [headers setObject:value forKey:key];
+    }];
+    [headers setObject:[NSString stringWithFormat:@"%lu", (unsigned long)length]
+                forKey:@"Content-Length"];
+
+    return [[NSHTTPURLResponse alloc] initWithURL:[http URL]
+                                       statusCode:[http statusCode]
+                                      HTTPVersion:@"HTTP/1.1"
+                                     headerFields:headers];
 }
 
 
@@ -76,10 +143,17 @@ static NSURL *ASFXStorefrontURL(NSURL *url) {
 @property(nonatomic, retain) NSURL *originalURL;
 @property(nonatomic, retain) NSURLConnection *connection;
 @property(nonatomic, assign) BOOL patchScript;
+@property(nonatomic, retain) NSURLConnection *legacyConnection;
+@property(nonatomic, retain) NSURLResponse *response;
+@property(nonatomic, retain) NSMutableData *script;
+@property(nonatomic, retain) NSMutableData *legacyScript;
+@property(nonatomic, assign) BOOL scriptFinished;
+@property(nonatomic, assign) BOOL legacyScriptFinished;
 
 - (id)initWithOwner:(ASFXBootstrapBridge *)owner originalURL:(NSURL *)url patchScript:(BOOL)patchScript;
+- (void)loadLegacyBuyButtonWithRequest:(NSURLRequest *)request;
 - (void)cancel;
- 
+
 @end
 
 @implementation ASFXStorefrontRelay
@@ -94,15 +168,59 @@ static NSURL *ASFXStorefrontURL(NSURL *url) {
     return self;
 }
 
+- (void)loadLegacyBuyButtonWithRequest:(NSURLRequest *)request {
+    self.script = [NSMutableData data];
+    self.legacyScript = [NSMutableData data];
+    self.legacyConnection = [[NSURLConnection alloc] initWithRequest:request
+                                                             delegate:self
+                                                     startImmediately:NO];
+    [self.legacyConnection start];
+}
+
 - (void)cancel {
     [self.connection cancel];
     self.connection = nil;
+    [self.legacyConnection cancel];
+    self.legacyConnection = nil;
+}
+
+- (void)legacyScriptDidFail {
+    [self.legacyConnection cancel];
+    self.legacyConnection = nil;
+    self.legacyScript = nil;
+    self.legacyScriptFinished = YES;
+    [self deliverScriptIfComplete];
+}
+
+- (void)deliverScriptIfComplete {
+    if (!self.scriptFinished || !self.legacyScriptFinished)
+        return;
+
+    NSData *body = self.script;
+    NSData *merged = self.legacyScript ? ASFXScriptWithLegacyBuyButton(self.script, self.legacyScript) : nil;
+    if (merged) {
+        body = merged;
+        NSLog(@"[AppStoreFix] iOS 6 buy button restored for %@", self.originalURL);
+    } else {
+        NSLog(@"[AppStoreFix] iOS 6 buy button unavailable for %@", self.originalURL);
+    }
+
+    id<NSURLProtocolClient> client = [self.owner client];
+    [client URLProtocol:self.owner
+     didReceiveResponse:ASFXResponseWithBodyLength(self.response, [body length])
+     cacheStoragePolicy:NSURLCacheStorageNotAllowed];
+    [client URLProtocol:self.owner didLoadData:body];
+    [client URLProtocolDidFinishLoading:self.owner];
+
+    self.response = nil;
+    self.script = nil;
+    self.legacyScript = nil;
 }
 
 - (NSURLRequest *)connection:(NSURLConnection *)connection
           willSendRequest:(NSURLRequest *)request
          redirectResponse:(NSURLResponse *)redirectResponse {
-    NSURL *alternate = ASFXStorefrontURL(request.URL);
+    NSURL *alternate = connection == self.legacyConnection ? nil : ASFXStorefrontURL(request.URL);
     NSMutableURLRequest *forwarded = [request mutableCopy];
     if (alternate)
         forwarded.URL = alternate;
@@ -112,6 +230,14 @@ static NSURL *ASFXStorefrontURL(NSURL *url) {
 
 - (void)connection:(NSURLConnection *)connection
  didReceiveResponse:(NSURLResponse *)response {
+    if (connection == self.legacyConnection) {
+        if ([response isKindOfClass:[NSHTTPURLResponse class]] &&
+            [(NSHTTPURLResponse *)response statusCode] != 200) {
+            [self legacyScriptDidFail];
+        }
+        return;
+    }
+
     NSURLResponse *visibleResponse = response;
     if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
         NSHTTPURLResponse *http = (NSHTTPURLResponse *)response;
@@ -122,24 +248,61 @@ static NSURL *ASFXStorefrontURL(NSURL *url) {
             headerFields:[http allHeaderFields]];
     }
 
+    if (self.script) {
+        [self.script setLength:0];
+        self.response = visibleResponse;
+        return;
+    }
+
     [[self.owner client] URLProtocol:self.owner
                   didReceiveResponse:visibleResponse
                   cacheStoragePolicy:NSURLCacheStorageNotAllowed];
 }
 
 - (void)connection:(NSURLConnection *)connection didReceiveData:(NSData *)data {
+    if (connection == self.legacyConnection) {
+        [self.legacyScript appendData:data];
+        return;
+    }
+
     if (self.patchScript) {
         data = ASFXPatchStorefrontScript(data);
+    }
+    if (self.script) {
+        [self.script appendData:data];
+        return;
     }
     [[self.owner client] URLProtocol:self.owner didLoadData:data];
 }
 
 - (void)connectionDidFinishLoading:(NSURLConnection *)connection {
+    if (connection == self.legacyConnection) {
+        self.legacyConnection = nil;
+        self.legacyScriptFinished = YES;
+        [self deliverScriptIfComplete];
+        return;
+    }
+
+    if (self.script) {
+        self.connection = nil;
+        self.scriptFinished = YES;
+        [self deliverScriptIfComplete];
+        return;
+    }
+
     [[self.owner client] URLProtocolDidFinishLoading:self.owner];
     self.connection = nil;
 }
 
 - (void)connection:(NSURLConnection *)connection didFailWithError:(NSError *)error {
+    if (connection == self.legacyConnection) {
+        NSLog(@"[AppStoreFix] iOS 6 storefront script failed: %@", error);
+        [self legacyScriptDidFail];
+        return;
+    }
+
+    [self.legacyConnection cancel];
+    self.legacyConnection = nil;
     [[self.owner client] URLProtocol:self.owner didFailWithError:error];
     self.connection = nil;
 }
@@ -196,6 +359,11 @@ static NSURL *ASFXStorefrontURL(NSURL *url) {
                                                                  originalURL:sourceURL
                                                                  patchScript:patchScript];
     self.relay = relay;
+    if (alternateURL && ASFXUsesLegacyBuyButton()) {
+        NSMutableURLRequest *legacy = [self.request mutableCopy];
+        [NSURLProtocol setProperty:@YES forKey:ASFXRelayMarker inRequest:legacy];
+        [relay loadLegacyBuyButtonWithRequest:legacy];
+    }
     relay.connection = [[NSURLConnection alloc] initWithRequest:forwarded
                                                         delegate:relay
                                                 startImmediately:YES];

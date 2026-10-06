@@ -1,6 +1,6 @@
 TARGET := iphone:clang:6.0:6.0
 ARCHS = armv7
-INSTALL_TARGET_PROCESSES = AppStore
+INSTALL_TARGET_PROCESSES = AppStore itunesstored
 
 MAKEFLAGS += --output-sync=none
 
@@ -13,6 +13,9 @@ AppStoreFix_CFLAGS = -fobjc-arc
 AppStoreFix_FRAMEWORKS = Security
 
 include $(THEOS_MAKE_PATH)/tweak.mk
+
+SUBPROJECTS += AppStoreFixPrefs
+include $(THEOS_MAKE_PATH)/aggregate.mk
 
 # ------------------------------- PACKAGE PIPELINES -------------------------------
 # Keep the same development/release workflow as the other tweaks.
