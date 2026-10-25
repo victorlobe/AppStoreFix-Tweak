@@ -1,5 +1,6 @@
 #import "ASFXStoreCompatibility.h"
 
+static NSURL *ASFXAuthenticateURL(NSURL *url);
 
 
 
@@ -26,7 +27,7 @@ NSURL *ASFXStoreURLForRequest(NSURL *url) {
     NSString *host = [[url host] lowercaseString];
     NSString *path = [url path];
     if (!ASFXIsHistoricalStoreHost(host) || !ASFXIsStoreSessionPath(path)) {
-        return url;
+        return ASFXAuthenticateURL(url);
     }
 
 
@@ -53,91 +54,52 @@ NSURL *ASFXStoreURLForRequest(NSURL *url) {
     return url;
 }
 
-static NSString *ASFXXMLString(NSString *value) {
-    return [[[[[value stringByReplacingOccurrencesOfString:@"&" withString:@"&amp;"]
-        stringByReplacingOccurrencesOfString:@"\"" withString:@"&quot;"]
-        stringByReplacingOccurrencesOfString:@"'" withString:@"&#39;"]
-        stringByReplacingOccurrencesOfString:@">" withString:@"&gt;"]
-        stringByReplacingOccurrencesOfString:@"<" withString:@"&lt;"];
+static NSString *const ASFXAuthenticatePath = @"/WebObjects/MZFinance.woa/wa/authenticate";
+
+
+// Discovered by Pod, see NewerStoreLoginFix. Thank you Pod
+static NSURL *ASFXAuthenticateURL(NSURL *url) {
+    if (![[[url host] lowercaseString] hasSuffix:@"buy.itunes.apple.com"]) {
+        return url;
+    }
+
+
+    NSString *absolute = [url absoluteString];
+    NSRange path = [absolute rangeOfString:ASFXAuthenticatePath];
+    if (path.location == NSNotFound) {
+        return url;
+    }
+
+    NSUInteger end = NSMaxRange(path);
+    if (end < [absolute length] && [absolute characterAtIndex:end] != '?') {
+        return url;
+    }
+
+    NSString *rewritten = [absolute stringByReplacingCharactersInRange:NSMakeRange(end, 0) withString:@"/"];
+    NSURL *result = [NSURL URLWithString:rewritten];
+    if (result == nil) {
+        return url;
+    }
+
+    NSLog(@"[AppStoreFix] authenticate endpoint: %@ -> %@", url, result);
+    return result;
 }
 
-static NSString *ASFXDecodedQueryValue(NSString *value) {
-    NSString *decoded = [value stringByReplacingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
-    return decoded ?: value;
-}
-
-static NSString *ASFXLoginPropertyList(NSString *query) {
-    NSMutableString *plist = [NSMutableString stringWithString:
-        @"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-        @"<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
-        @"<plist version=\"1.0\">\n<dict>\n"];
-
-    for (NSString *pair in [query componentsSeparatedByString:@"&"]) {
-        NSRange separator = [pair rangeOfString:@"="];
-        if (separator.location == NSNotFound) {
-            continue;
-        }
-
-        NSString *key = ASFXDecodedQueryValue([pair substringToIndex:separator.location]);
-        NSString *value = ASFXDecodedQueryValue([pair substringFromIndex:separator.location + 1]);
-        if ([key length] == 0) {
-            continue;
-        }
-
-        [plist appendFormat:@"<key>%@</key>\n<string>%@</string>\n",
-            ASFXXMLString(key), ASFXXMLString(value)];
+// Same bag key NewerStoreLoginFix patches. Thank you again Pod.
+id ASFXPrepareStoreURLBagValue(NSString *key, id value) {
+    if (![key isEqualToString:@"authenticateAccount"]) {
+        return value;
     }
 
-    [plist appendString:@"</dict>\n</plist>"];
-    return plist;
-}
-
-NSMutableURLRequest *ASFXPrepareLoginRequest(NSMutableURLRequest *request) {
-    if (![request isKindOfClass:[NSMutableURLRequest class]]) {
-        return request;
+    if ([value isKindOfClass:[NSURL class]]) {
+        return ASFXAuthenticateURL(value);
     }
-
-    NSURL *loginURL = [NSURL URLWithString:@"https://auth.itunes.apple.com/auth/v1/native/fast"];
-    if (loginURL == nil) {
-        return request;
+    if ([value isKindOfClass:[NSString class]]) {
+        NSURL *url = [NSURL URLWithString:value];
+        NSURL *rewritten = ASFXAuthenticateURL(url);
+        return rewritten != url ? [rewritten absoluteString] : value;
     }
-
-    // Credentials arrive in query on older clients but in POST body on iOS 6
-    NSString *query = [[request URL] query];
-    NSData *body = [request HTTPBody];
-    NSString *bodyString = [body length] != 0
-        ? [[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding]
-        : nil;
-    BOOL bodyIsPropertyList = [bodyString hasPrefix:@"<?xml"] ||
-        (body != nil && [body length] >= 6 && memcmp([body bytes], "bplist", 6) == 0);
-
-    NSData *loginBody = nil;
-    if ([query length] != 0) {
-        loginBody = [ASFXLoginPropertyList(query) dataUsingEncoding:NSUTF8StringEncoding];
-    } else if (bodyIsPropertyList) {
-        loginBody = body;
-    } else if ([bodyString length] != 0) {
-        loginBody = [ASFXLoginPropertyList(bodyString) dataUsingEncoding:NSUTF8StringEncoding];
-    }
-
-    if (loginBody == nil) {
-        NSLog(@"[AppStoreFix] login request has no credentials yet, leaving it untouched");
-        return request;
-    }
-
-    [request setURL:loginURL];
-    [request setHTTPMethod:@"POST"];
-    [request setHTTPBody:loginBody];
-    // Thank you Pod
-    [request setValue:@"iBooks/1.18 (Macintosh; OS X 10.9.5) AppleWebKit/537.78.2"
-   forHTTPHeaderField:@"User-Agent"];
-
-    NSLog(@"[AppStoreFix] login endpoint rewritten to %@", loginURL);
-    return request;
-}
-
-BOOL ASFXIsLoginURL(NSURL *url) {
-    return [[[url host] lowercaseString] isEqualToString:@"auth.itunes.apple.com"];
+    return value;
 }
 
 static const double ASFXCoreFoundationVersionIOS4 = 550.32;
@@ -169,38 +131,6 @@ NSString *ASFXRepairStoreFront(NSString *storeFront) {
     }
 
     return [storeFront stringByReplacingCharactersInRange:platform withString:ASFXNativeStoreFrontPlatform()];
-}
-
-NSURLResponse *ASFXPrepareLoginResponse(NSURLResponse *response) {
-    if (![response isKindOfClass:[NSHTTPURLResponse class]]) {
-        return response;
-    }
-
-    NSHTTPURLResponse *http = (NSHTTPURLResponse *)response;
-    NSMutableDictionary *headers = [[http allHeaderFields] mutableCopy];
-    BOOL changed = NO;
-    for (NSString *key in [headers allKeys]) {
-        if ([key caseInsensitiveCompare:@"X-Set-Apple-Store-Front"] != NSOrderedSame) {
-            continue;
-        }
-
-        NSString *storeFront = [headers objectForKey:key];
-        NSString *repaired = ASFXRepairStoreFront(storeFront);
-        if (![repaired isEqualToString:storeFront]) {
-            [headers setObject:repaired forKey:key];
-            changed = YES;
-            NSLog(@"[AppStoreFix] login storefront %@ -> %@", storeFront, repaired);
-        }
-    }
-
-    if (!changed) {
-        return response;
-    }
-
-    return [[NSHTTPURLResponse alloc] initWithURL:[http URL]
-                                       statusCode:[http statusCode]
-                                      HTTPVersion:@"HTTP/1.1"
-                                     headerFields:headers] ?: response;
 }
 
 NSMutableURLRequest *ASFXPrepareStoreRequest(NSMutableURLRequest *request) {
@@ -407,24 +337,4 @@ BOOL ASFXLooksLikeStoreURLBagData(id data) {
     }
 
     return NO;
-}
-
-NSDictionary *ASFXPrepareStoreURLBag(NSDictionary *bag) {
-    
-    if (![bag isKindOfClass:[NSDictionary class]]) {
-        return bag;
-    }
-
-    id certs = [bag objectForKey:@"certs"];
-    if ([certs isKindOfClass:[NSArray class]]) {
-        NSLog(@"[AppStoreFix] URL bag accepted with %lu server certificates",
-              (unsigned long)[certs count]);
-    } else if (certs == nil) {
-        NSLog(@"[AppStoreFix] URL bag has no certificate list.... using system trust");
-    } else {
-        NSLog(@"[AppStoreFix] URL bag certificate field has unexpected type: %@",
-              [certs class]);
-    }
-
-    return [NSDictionary dictionaryWithDictionary:bag];
 }

@@ -4,11 +4,15 @@
 static NSString * const ASFXRelayMarker = @"com.victorlobe.appstorefix.storefront-relay";
 static const double ASFXCoreFoundationVersionIOS7 = 847.20;
 
+
 static BOOL ASFXIsStorefrontHost(NSString *host) {
     return [host isEqualToString:@"itunes.apple.com"] ||
            [host hasSuffix:@".itunes.apple.com"] ||
            [host isEqualToString:@"apps.apple.com"] ||
-           [host hasSuffix:@".apps.apple.com"];
+           [host hasSuffix:@".apps.apple.com"] ||
+           [host isEqualToString:@"music.apple.com"] ||
+           [host isEqualToString:@"books.apple.com"] ||
+           [host isEqualToString:@"podcasts.apple.com"];
 }
 
 static BOOL ASFXNeedsStorefrontScriptPatch(NSURL *url) {
@@ -56,24 +60,104 @@ static NSData *ASFXScriptWithLegacyBuyButton(NSData *script, NSData *legacyScrip
     if (classRange.location == NSNotFound || legacyClassRange.location == NSNotFound)
         return nil;
 
+        //Fix GET button implementation
     NSData *prefix = [@",function(_asfxModernBuyButton){"
                        "typeof inner==\"undefined\"&&(window.inner=null);"
+                       "function _asfxLog(m){try{its.client.log(\"[AppStoreFix] \"+m)}catch(x){}}"
+                       "function _asfxColor(c){return String(c&&c.getColor?c.getColor():c)}"
+                       "function _asfxLegacyPalette(p){"
+                         "if(!p||p.buttonGradientStart)return p;"
+                         "if(!p.buttonBg)return null;"
+                         "var t=_asfxColor(p.buttonBgTrack||p.buttonBg),"
+                           "c=_asfxColor(p.buttonBgTrackTransparent||p.buttonBgTransparent||t),"
+                           "l={buttonGradientStart:t,buttonGradientEnd:c,buttonStroke:_asfxColor(p.buttonBg),"
+                             "buttonShadow:t,buttonText:_asfxColor(p.buttonText),"
+                             "buttonTextDisabled:_asfxColor(p.buttonTextDisabled||p.buttonText),"
+                             "buttonDisabledBg:_asfxColor(p.buttonBgTransparent||c)},k;"
+                         "for(k in l)if(/undefined|null|object/.test(l[k]))return null;"
+                         "return l"
+                       "}"
         dataUsingEncoding:NSUTF8StringEncoding];
-    NSData *suffix = [@";for(var _asfxKey in _asfxModernBuyButton)"
+
+
+    NSData *suffix = [@";(function(_asfxLegacy){"
+                         "var p=_asfxLegacy.prototype,k,s;"
+                         "for(k in p)p.hasOwnProperty(k)&&typeof p[k]==\"function\"&&(p[k]=function(k,f){return function(){"
+                           "if(this._asfxFailed)return;"
+                           "try{return f.apply(this,arguments)}catch(x){"
+                             "if(this._asfxBuilding)throw x;"
+                             "_asfxLog(\"legacy buy button \"+k+\" failed: \"+x)"
+                           "}"
+                         "}}(k,p[k]));"
+                         "iTSBuyButton=function(e,t,n){"
+                           "this._asfxBuilding=!0;"
+                           "try{_asfxLegacy.call(this,e,t,n),this._asfxBuilding=!1}catch(x){"
+                             "this._asfxBuilding=!1,this._asfxFailed=!0;"
+                             "_asfxLog(\"legacy buy button failed, using the modern one: \"+x);"
+                             "this.canvas&&this.canvas.parentNode&&this.canvas.parentNode.removeChild(this.canvas);"
+                             "return new _asfxModernBuyButton(e,t,n)"
+                           "}"
+                         "};"
+                         "iTSBuyButton.prototype=p;"
+                         "for(s in _asfxLegacy)_asfxLegacy.hasOwnProperty(s)&&(iTSBuyButton[s]=_asfxLegacy[s])"
+                       "})(iTSBuyButton);"
+                       "for(var _asfxKey in _asfxModernBuyButton)"
                        "_asfxKey in iTSBuyButton||(iTSBuyButton[_asfxKey]=_asfxModernBuyButton[_asfxKey])"
                        "}(iTSBuyButton)"
         dataUsingEncoding:NSUTF8StringEncoding];
 
+    NSData *legacyClass = [legacyScript subdataWithRange:legacyClassRange];
+    NSString *legacyClassSource = [[NSString alloc] initWithData:legacyClass encoding:NSUTF8StringEncoding];
+    NSString *paletteAssignment = @"this.buttonPalette=this.componentContext.buyButtonUberPalette";
+    if ([legacyClassSource rangeOfString:paletteAssignment].location != NSNotFound) {
+        legacyClassSource = [legacyClassSource stringByReplacingOccurrencesOfString:paletteAssignment
+            withString:@"this.buttonPalette=_asfxLegacyPalette(this.componentContext.buyButtonUberPalette)"];
+        legacyClass = [legacyClassSource dataUsingEncoding:NSUTF8StringEncoding] ?: legacyClass;
+    }
+    
+
     NSUInteger insertion = NSMaxRange(classRange);
     NSMutableData *merged = [NSMutableData dataWithCapacity:
-        [script length] + [prefix length] + legacyClassRange.length + [suffix length]];
+        [script length] + [prefix length] + [legacyClass length] + [suffix length]];
     [merged appendData:[script subdataWithRange:NSMakeRange(0, insertion)]];
     [merged appendData:prefix];
-    [merged appendData:[legacyScript subdataWithRange:legacyClassRange]];
+    [merged appendData:legacyClass];
     [merged appendData:suffix];
     [merged appendData:[script subdataWithRange:NSMakeRange(insertion, [script length] - insertion)]];
     return merged;
 }
+
+
+
+//Info string for dead pages
+static NSData *ASFXScriptWithEmptyPageNotice(NSData *script) {
+    NSData *notice = [@";(function(){"
+                       "var d=window.its&&its.serverData&&its.serverData.pageData;"
+                       "if(!d)return;"
+                       "var g=d.groupingData,c=d.chartData;"
+                       "if(!(d.pageComponent==\"grouping_page\"&&g&&g.stack&&!g.stack.length||"
+                         "d.pageComponent==\"charts_page\"&&c&&c.charts&&!c.charts.length))return;"
+                       "function s(){"
+                         "if(!document.body||document.getElementById(\"asfx-empty-page\"))return;"
+                         "var e=document.createElement(\"div\");"
+                         "e.id=\"asfx-empty-page\";"
+                         "e.style.cssText=\"padding:140px 30px 0;text-align:center;"
+                           "font:bold 17px Helvetica,sans-serif;color:#7f7f7f;text-shadow:0 1px 0 #fff\";"
+                         "e.appendChild(document.createTextNode("
+                           "\"Apple no longer provides this content for older iOS versions.\"));"
+                         "document.body.appendChild(e)"
+                       "}"
+                       "document.addEventListener(\"DOMContentLoaded\",s,!1);"
+                       "window.addEventListener(\"load\",s,!1);"
+                       "setTimeout(s,1500);setTimeout(s,4000)"
+                       "})();"
+        dataUsingEncoding:NSUTF8StringEncoding];
+
+    NSMutableData *result = [NSMutableData dataWithData:script];
+    [result appendData:notice];
+    return result;
+}
+
 
 static NSURLResponse *ASFXResponseWithBodyLength(NSURLResponse *response, NSUInteger length) {
     if (![response isKindOfClass:[NSHTTPURLResponse class]])
@@ -204,6 +288,7 @@ static NSURL *ASFXStorefrontURL(NSURL *url) {
     } else {
         NSLog(@"[AppStoreFix] iOS 6 buy button unavailable for %@", self.originalURL);
     }
+    body = ASFXScriptWithEmptyPageNotice(body);
 
     id<NSURLProtocolClient> client = [self.owner client];
     [client URLProtocol:self.owner

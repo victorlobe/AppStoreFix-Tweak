@@ -1,6 +1,25 @@
 TARGET := iphone:clang:6.0:6.0
 ARCHS = armv7
-INSTALL_TARGET_PROCESSES = AppStore itunesstored
+INSTALL_TARGET_PROCESSES = AppStore itunesstored MobileStore Podcasts iBooks
+
+# Pin Xcode 26.6 (ld-1267): Xcode 27's ld emits armv7 binaries without lazy binding
+# (__picsymbolstub5) that crash on iOS 5/6 (SIGILL). Same as Veteris and iCloudMailFix.
+# Theos can't handle the space in "Xcode 26.6.app", so go through a space-free symlink.
+# Thank you Claude for discovering this after i nearly lost my mind.
+XCODE26_APP ?= /Applications/Xcode 26.6.app
+XCODE26_LINK := $(CURDIR)/.theos/Xcode26.app
+$(shell mkdir -p "$(CURDIR)/.theos" && ln -sfn "$(XCODE26_APP)" "$(XCODE26_LINK)")
+export DEVELOPER_DIR := $(XCODE26_LINK)/Contents/Developer
+MAKE := $(DEVELOPER_DIR)/usr/bin/make
+_ASFX_TC := $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/bin
+TARGET_CC := $(_ASFX_TC)/clang
+TARGET_CXX := $(_ASFX_TC)/clang++
+TARGET_LD := $(_ASFX_TC)/clang
+TARGET_LIPO := $(_ASFX_TC)/lipo
+TARGET_STRIP := $(_ASFX_TC)/strip
+TARGET_DSYMUTIL := $(_ASFX_TC)/dsymutil
+TARGET_CODESIGN_ALLOCATE := $(_ASFX_TC)/codesign_allocate
+export TARGET_CC TARGET_CXX TARGET_LD TARGET_LIPO TARGET_STRIP TARGET_DSYMUTIL TARGET_CODESIGN_ALLOCATE
 
 MAKEFLAGS += --output-sync=none
 

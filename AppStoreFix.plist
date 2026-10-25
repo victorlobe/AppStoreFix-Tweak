@@ -5,7 +5,9 @@
             "com.apple.MobileStore"
         );
         Executables = (
-            "itunesstored"
+            "itunesstored",
+            "Podcasts",
+            "iBooks"
         );
     };
 }

@@ -12,12 +12,27 @@ static OSStatus ASFXSSLHandshake(SSLContextRef context) {
     OSStatus minStatus = SSLSetProtocolVersionMin(context, kTLSProtocol1);
     OSStatus maxStatus = SSLSetProtocolVersionMax(context, kTLSProtocol12);
     OSStatus handshakeStatus = ASFXOriginalSSLHandshake(context);
+	
+	
+    if (handshakeStatus == noErr ||
+        handshakeStatus == errSSLWouldBlock ||
+        handshakeStatus == errSSLServerAuthCompleted) {
+        return handshakeStatus;
+    }
 
     SSLProtocol negotiatedProtocol = kSSLProtocolUnknown;
     OSStatus negotiatedStatus =
         SSLGetNegotiatedProtocolVersion(context, &negotiatedProtocol);
 
-    NSLog(@"[AppStoreFix] SecureTransport min=%d max=%d handshake=%d negotiated=%d read=%d",
+    char peer[256] = {0};
+    size_t peerLength = sizeof(peer) - 1;
+    if (SSLGetPeerDomainName(context, peer, &peerLength) != noErr) {
+        peerLength = 0;
+    }
+    peer[peerLength] = '\0';
+
+    NSLog(@"[AppStoreFix] SecureTransport failed host=%s min=%d max=%d handshake=%d negotiated=%d read=%d",
+          peer,
           (int)minStatus,
           (int)maxStatus,
           (int)handshakeStatus,
@@ -39,32 +54,12 @@ static OSStatus ASFXSSLHandshake(SSLContextRef context) {
 
 - (id)newRequestWithURL:(NSURL *)url {
     NSURL *rewritten = ASFXStoreURLForRequest(url);
-    NSMutableURLRequest *request = %orig(rewritten);
-
-
-    NSURL *requestURL = [request URL];
-    NSString *host = [[requestURL host] lowercaseString];
-    NSString *path = [requestURL path];
-    BOOL isBuyHost = [host hasSuffix:@"-buy.itunes.apple.com"];
-
-    BOOL isAuthenticatePath = [path isEqualToString:@"/WebObjects/MZFinance.woa/wa/authenticate"];
- 
-    if (isBuyHost && isAuthenticatePath) {
-        request = ASFXPrepareLoginRequest(request);
-    }
-    return request;
+    return %orig(rewritten);
 }
 
 - (BOOL)_runRequestWithURL:(NSURL *)url {
     NSURL *rewritten = ASFXStoreURLForRequest(url);
     return %orig(rewritten);
-}
-
-- (void)connection:(NSURLConnection *)connection didReceiveResponse:(NSURLResponse *)response {
-    if (ASFXIsLoginURL([response URL])) {
-        response = ASFXPrepareLoginResponse(response);
-    }
-    %orig(connection, response);
 }
 
 - (BOOL)_isTrustExtendedValidation:(SecTrustRef)trust {
@@ -78,8 +73,9 @@ static OSStatus ASFXSSLHandshake(SSLContextRef context) {
     if (status == errSecSuccess) {
         accepted = result == kSecTrustResultProceed || result == kSecTrustResultUnspecified;
     }
-    NSLog(@"[AppStoreFix] trust evaluation status=%d result=%d accepted=%d",
-          (int)status, (int)result, accepted ? 1 : 0);
+    if (!accepted) {
+        NSLog(@"[AppStoreFix] trust evaluation rejected status=%d result=%d", (int)status, (int)result);
+    }
     return accepted;
 }
 
@@ -106,11 +102,18 @@ static OSStatus ASFXSSLHandshake(SSLContextRef context) {
 
 %end
 
-%hook ISLoadURLBagOperation
+// Bag patch for the login URL taken from Pod's NewerStoreLoginFix. Thank you Pod
+// https://github.com/Epixx512/NewerStoreLoginFix
+%hook ISURLBag
 
-- (void)operation:(id)operation finishedWithOutput:(NSDictionary *)outputBag {
-    NSDictionary *preparedBag = ASFXPrepareStoreURLBag(outputBag);
-    %orig(operation, preparedBag);
+- (id)valueForKey:(NSString *)key {
+    id value = %orig;
+    return ASFXPrepareStoreURLBagValue(key, value);
+}
+
+- (NSURL *)urlForKey:(NSString *)key {
+    NSURL *url = %orig;
+    return ASFXPrepareStoreURLBagValue(key, url);
 }
 
 %end
@@ -126,7 +129,8 @@ static OSStatus ASFXSSLHandshake(SSLContextRef context) {
 %hook SSAccount
 
 - (NSString *)storeFrontIdentifier {
-    return ASFXRepairStoreFront(%orig);
+    NSString *storeFront = %orig;
+    return ASFXRepairStoreFront(storeFront);
 }
 
 - (void)setStoreFrontIdentifier:(NSString *)storeFront {
@@ -138,7 +142,8 @@ static OSStatus ASFXSSLHandshake(SSLContextRef context) {
 %hook SSDevice
 
 - (NSString *)storeFrontIdentifier {
-    return ASFXRepairStoreFront(%orig);
+    NSString *storeFront = %orig;
+    return ASFXRepairStoreFront(storeFront);
 }
 
 %end

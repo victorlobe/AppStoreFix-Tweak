@@ -23,6 +23,14 @@ create_preremove_backup() {
     return 0
 }
 
+# Only clean up when the package really goes away. 
+case "$1" in
+    remove|purge)
+        ;;
+    *)
+        exit 0
+        ;;
+esac
 
 /bin/echo "Removing changes from the hosts file..."
 if has_complete_block; then

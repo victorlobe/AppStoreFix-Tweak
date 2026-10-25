@@ -60,6 +60,10 @@ else
     /bin/echo "AppStoreFix hosts block is already present."
 fi
 
-/bin/echo "Please reboot your device!"
+
+for PROCESS in itunesstored AppStore MobileStore Podcasts iBooks; do
+    /bin/echo "Killing $PROCESS..."
+    /usr/bin/killall -9 "$PROCESS" 2>/dev/null || true
+done
 
 exit 0
