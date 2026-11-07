@@ -1,6 +1,6 @@
 Package: com.victorlobe.appstorefix
 Name: AppStoreFix
-Version: 3
+Version: 3.0.1
 Architecture: iphoneos-arm
 Description: Fixes the App Store, iTunes Store, iBooks and Podcasts on iOS 3,5 and 6!
 Maintainer: Victor <contact@victorlobe.me>
