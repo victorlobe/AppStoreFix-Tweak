@@ -63,6 +63,10 @@ Older Store clients still request Store domains, paths, storefront resources, an
 
 ## Changelog
 
+### Version 3.0.1
+
+- This update fixes the Settings bundle on iOS 5.
+
 ### Version 3
 
 - Added support for the iTunes Store, iBooks and Podcasts
