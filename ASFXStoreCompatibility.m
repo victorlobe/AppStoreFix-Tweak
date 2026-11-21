@@ -54,54 +54,6 @@ NSURL *ASFXStoreURLForRequest(NSURL *url) {
     return url;
 }
 
-static NSString *const ASFXAuthenticatePath = @"/WebObjects/MZFinance.woa/wa/authenticate";
-
-
-// Discovered by Pod, see NewerStoreLoginFix. Thank you Pod
-static NSURL *ASFXAuthenticateURL(NSURL *url) {
-    if (![[[url host] lowercaseString] hasSuffix:@"buy.itunes.apple.com"]) {
-        return url;
-    }
-
-
-    NSString *absolute = [url absoluteString];
-    NSRange path = [absolute rangeOfString:ASFXAuthenticatePath];
-    if (path.location == NSNotFound) {
-        return url;
-    }
-
-    NSUInteger end = NSMaxRange(path);
-    if (end < [absolute length] && [absolute characterAtIndex:end] != '?') {
-        return url;
-    }
-
-    NSString *rewritten = [absolute stringByReplacingCharactersInRange:NSMakeRange(end, 0) withString:@"/"];
-    NSURL *result = [NSURL URLWithString:rewritten];
-    if (result == nil) {
-        return url;
-    }
-
-    NSLog(@"[AppStoreFix] authenticate endpoint: %@ -> %@", url, result);
-    return result;
-}
-
-// Same bag key NewerStoreLoginFix patches. Thank you again Pod.
-id ASFXPrepareStoreURLBagValue(NSString *key, id value) {
-    if (![key isEqualToString:@"authenticateAccount"]) {
-        return value;
-    }
-
-    if ([value isKindOfClass:[NSURL class]]) {
-        return ASFXAuthenticateURL(value);
-    }
-    if ([value isKindOfClass:[NSString class]]) {
-        NSURL *url = [NSURL URLWithString:value];
-        NSURL *rewritten = ASFXAuthenticateURL(url);
-        return rewritten != url ? [rewritten absoluteString] : value;
-    }
-    return value;
-}
-
 static const double ASFXCoreFoundationVersionIOS4 = 550.32;
 static const double ASFXCoreFoundationVersionIOS6 = 793.00;
 

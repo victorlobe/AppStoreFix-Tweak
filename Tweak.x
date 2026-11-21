@@ -50,6 +50,28 @@ static OSStatus ASFXSSLHandshake(SSLContextRef context) {
     NSLog(@"[AppStoreFix] Store compatibility loaded");
 }
 
+// Bag patch for the login URL taken from Pod's NewerStoreLoginFix. Thank you Pod
+// https://github.com/Epixx512/NewerStoreLoginFix
+%hook ISURLBag
+
+- (id)valueForKey:(NSString *)key {
+	id value = %orig;
+	if ([key isEqualToString:@"authenticateAccount"] && [value isKindOfClass:[NSString class]] && ![value hasSuffix:@"/"]) {
+		return [value stringByAppendingString:@"/"];
+	}
+	return value;
+}
+
+- (NSURL *)urlForKey:(NSString *)key {
+	if ([key isEqualToString:@"authenticateAccount"]) {
+		id value = [(id)self valueForKey:key];
+		return [value isKindOfClass:[NSString class]] ? [NSURL URLWithString:value] : nil;
+	}
+	return %orig;
+}
+
+%end
+
 %hook ISURLOperation
 
 - (id)newRequestWithURL:(NSURL *)url {
@@ -98,22 +120,6 @@ static OSStatus ASFXSSLHandshake(SSLContextRef context) {
     }
 
     return %orig;
-}
-
-%end
-
-// Bag patch for the login URL taken from Pod's NewerStoreLoginFix. Thank you Pod
-// https://github.com/Epixx512/NewerStoreLoginFix
-%hook ISURLBag
-
-- (id)valueForKey:(NSString *)key {
-    id value = %orig;
-    return ASFXPrepareStoreURLBagValue(key, value);
-}
-
-- (NSURL *)urlForKey:(NSString *)key {
-    NSURL *url = %orig;
-    return ASFXPrepareStoreURLBagValue(key, url);
 }
 
 %end
