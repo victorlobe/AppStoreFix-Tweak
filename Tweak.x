@@ -42,6 +42,12 @@ static OSStatus ASFXSSLHandshake(SSLContextRef context) {
     return handshakeStatus;
 }
 
+static NSURLRequest *ASFXFinalRewrite(NSURLRequest *request) {
+    if ([[[request URL] path] rangeOfString:@"/WebObjects/MZFinance.woa/wa/authenticate"].location == NSNotFound) return request;
+    NSLog(@"[AppStoreFix] final req: %@ %@ %@", [request HTTPMethod], [request URL], [request allHTTPHeaderFields]);
+    return ASFXRewriteAuthenticateRequest([request mutableCopy]);
+}
+
 %ctor {
     [ASFXBootstrapBridge install];
     MSHookFunction((void *)SSLHandshake,
@@ -106,9 +112,7 @@ static OSStatus ASFXSSLHandshake(SSLContextRef context) {
 %hook ISStoreURLOperation
 
 - (id)newRequestWithURL:(NSURL *)url {
-    NSMutableURLRequest *req = ASFXPrepareStoreRequest(%orig(url));
-    NSLog(@"[AppStoreFix] orig req: %@ %@ %@", [req HTTPMethod], [req URL], [req allHTTPHeaderFields]);
-    return ASFXRewriteAuthenticateRequest(req);
+    return ASFXPrepareStoreRequest(%orig(url));
 }
 
 %end
@@ -170,6 +174,18 @@ static OSStatus ASFXSSLHandshake(SSLContextRef context) {
         value = ASFXRepairStoreFront(value);
     }
     %orig(value, field);
+}
+
+%end
+
+%hook NSURLConnection
+
+- (id)initWithRequest:(NSURLRequest *)request delegate:(id)delegate startImmediately:(BOOL)start {
+    return %orig(ASFXFinalRewrite(request), delegate, start);
+}
+
+- (id)initWithRequest:(NSURLRequest *)request delegate:(id)delegate {
+    return %orig(ASFXFinalRewrite(request), delegate);
 }
 
 %end
