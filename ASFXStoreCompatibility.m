@@ -1,9 +1,5 @@
 #import "ASFXStoreCompatibility.h"
 
-static NSURL *ASFXAuthenticateURL(NSURL *url);
-
-
-
 static BOOL ASFXIsHistoricalStoreHost(NSString *host) {
     if ([host isEqualToString:@"ax.init.itunes.apple.com"])
         return YES;
@@ -27,7 +23,7 @@ NSURL *ASFXStoreURLForRequest(NSURL *url) {
     NSString *host = [[url host] lowercaseString];
     NSString *path = [url path];
     if (!ASFXIsHistoricalStoreHost(host) || !ASFXIsStoreSessionPath(path)) {
-        return ASFXAuthenticateURL(url);
+        return url;
     }
 
 
@@ -122,6 +118,44 @@ NSMutableURLRequest *ASFXPrepareStoreRequest(NSMutableURLRequest *request) {
         [request setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
     }
 
+    return request;
+}
+
+static NSString *ASFXFormDecode(NSString *str) {
+    str = [str stringByReplacingOccurrencesOfString:@"+" withString:@" "];
+    NSString *decoded = [str stringByReplacingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
+    return decoded ?: str;
+}
+
+static NSData *ASFXPlistDataFromQuery(NSString *query) {
+    NSMutableDictionary *dict = [NSMutableDictionary dictionary];
+    for (NSString *pair in [query componentsSeparatedByString:@"&"]) {
+        if ([pair length] == 0) continue;
+        NSRange eq = [pair rangeOfString:@"="];
+        NSString *k = (eq.location == NSNotFound) ? pair : [pair substringToIndex:eq.location];
+        NSString *v = (eq.location == NSNotFound) ? @"" : [pair substringFromIndex:NSMaxRange(eq)];
+        k = ASFXFormDecode(k);
+        v = ASFXFormDecode(v);
+        if ([k length] != 0) [dict setObject:v forKey:k];
+    }
+    NSString *error = nil;
+    return [NSPropertyListSerialization dataFromPropertyList:dict format:NSPropertyListXMLFormat_v1_0 errorDescription:&error];
+}
+
+NSMutableURLRequest *ASFXRewriteAuthenticateRequest(NSMutableURLRequest *request) {
+    if (![request isKindOfClass:[NSMutableURLRequest class]]) return request;
+    NSURL *url = [request URL];
+    if ([[url path] rangeOfString:@"/WebObjects/MZFinance.woa/wa/authenticate"].location == NSNotFound) return request;
+    if ([request valueForHTTPHeaderField:@"X-Apple-ActionSignature"] != nil) return request;
+    NSString *method = [request HTTPMethod];
+    NSString *query = [url query];
+    [request setURL:[NSURL URLWithString:@"https://auth.itunes.apple.com/auth/v1/native/fast"]];
+    if ([method isEqualToString:@"GET"]) {
+        [request setHTTPMethod:@"POST"];
+        [request setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
+        [request setHTTPBody:ASFXPlistDataFromQuery(query)];
+    }
+    NSLog(@"[AppStoreFix] authenticate rewritten: %@ -> %@ (method=%@ bodyLen=%lu)", url, [request URL], [request HTTPMethod], (unsigned long)[[request HTTPBody] length]);
     return request;
 }
 

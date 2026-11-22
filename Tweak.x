@@ -106,7 +106,9 @@ static OSStatus ASFXSSLHandshake(SSLContextRef context) {
 %hook ISStoreURLOperation
 
 - (id)newRequestWithURL:(NSURL *)url {
-    return ASFXPrepareStoreRequest(%orig(url));
+    NSMutableURLRequest *req = ASFXPrepareStoreRequest(%orig(url));
+    NSLog(@"[AppStoreFix] orig req: %@ %@ %@", [req HTTPMethod], [req URL], [req allHTTPHeaderFields]);
+    return ASFXRewriteAuthenticateRequest(req);
 }
 
 %end
