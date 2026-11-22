@@ -42,6 +42,19 @@ static OSStatus ASFXSSLHandshake(SSLContextRef context) {
     return handshakeStatus;
 }
 
+static NSURLRequest *ASFXFinalRewrite(NSURLRequest *request) {
+    NSString *absolute = [[request URL] absoluteString];
+    if ([absolute hasPrefix:@"https://buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/freeProductCodeWizard"]) {
+        NSMutableURLRequest *newReq = [request mutableCopy];
+        [newReq setValue:@"iTunes/12.6.2 (Macintosh; OS X 10.9.5) AppleWebKit/625.2.8.11.9.1" forHTTPHeaderField:@"User-Agent"];
+        NSLog(@"[AppStoreFix] User-Agent set for freeProductCodeWizard");
+        return newReq;
+    }
+    if ([[[request URL] path] rangeOfString:@"/WebObjects/MZFinance.woa/wa/authenticate"].location != NSNotFound) return request;
+    NSLog(@"[AppStoreFix] final req: %@ %@ %@", [request HTTPMethod], [request URL], [request allHTTPHeaderFields]);
+    return ASFXRewriteAuthenticateRequest([request mutableCopy]);
+}
+
 %ctor {
     [ASFXBootstrapBridge install];
     MSHookFunction((void *)SSLHandshake,
@@ -49,6 +62,28 @@ static OSStatus ASFXSSLHandshake(SSLContextRef context) {
                    (void **)&ASFXOriginalSSLHandshake);
     NSLog(@"[AppStoreFix] Store compatibility loaded");
 }
+
+// Bag patch for the login URL taken from Pod's NewerStoreLoginFix. Thank you Pod
+// https://github.com/Epixx512/NewerStoreLoginFix
+%hook ISURLBag
+
+- (id)valueForKey:(NSString *)key {
+	id value = %orig;
+	if ([key isEqualToString:@"authenticateAccount"] && [value isKindOfClass:[NSString class]] && ![value hasSuffix:@"/"]) {
+		return [value stringByAppendingString:@"/"];
+	}
+	return value;
+}
+
+- (NSURL *)urlForKey:(NSString *)key {
+	if ([key isEqualToString:@"authenticateAccount"]) {
+		id value = [(id)self valueForKey:key];
+		return [value isKindOfClass:[NSString class]] ? [NSURL URLWithString:value] : nil;
+	}
+	return %orig;
+}
+
+%end
 
 %hook ISURLOperation
 
@@ -102,22 +137,6 @@ static OSStatus ASFXSSLHandshake(SSLContextRef context) {
 
 %end
 
-// Bag patch for the login URL taken from Pod's NewerStoreLoginFix. Thank you Pod
-// https://github.com/Epixx512/NewerStoreLoginFix
-%hook ISURLBag
-
-- (id)valueForKey:(NSString *)key {
-    id value = %orig;
-    return ASFXPrepareStoreURLBagValue(key, value);
-}
-
-- (NSURL *)urlForKey:(NSString *)key {
-    NSURL *url = %orig;
-    return ASFXPrepareStoreURLBagValue(key, url);
-}
-
-%end
-
 %hook SUSectionsResponse
 
 - (id)_newSectionsFromDictionary:(NSDictionary *)dictionary {
@@ -162,6 +181,18 @@ static OSStatus ASFXSSLHandshake(SSLContextRef context) {
         value = ASFXRepairStoreFront(value);
     }
     %orig(value, field);
+}
+
+%end
+
+%hook NSURLConnection
+
+- (id)initWithRequest:(NSURLRequest *)request delegate:(id)delegate startImmediately:(BOOL)start {
+    return %orig(ASFXFinalRewrite(request), delegate, start);
+}
+
+- (id)initWithRequest:(NSURLRequest *)request delegate:(id)delegate {
+    return %orig(ASFXFinalRewrite(request), delegate);
 }
 
 %end

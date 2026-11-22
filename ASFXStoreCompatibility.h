@@ -6,3 +6,4 @@ FOUNDATION_EXPORT NSString *ASFXRepairStoreFront(NSString *storeFront);
 FOUNDATION_EXPORT NSMutableURLRequest *ASFXPrepareStoreRequest(NSMutableURLRequest *request);
 FOUNDATION_EXPORT NSDictionary *ASFXPrepareStoreSectionsDictionary(NSDictionary *dictionary);
 FOUNDATION_EXPORT BOOL ASFXLooksLikeStoreURLBagData(id data);
+FOUNDATION_EXPORT NSMutableURLRequest *ASFXRewriteAuthenticateRequest(NSMutableURLRequest *request);
