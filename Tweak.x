@@ -43,7 +43,14 @@ static OSStatus ASFXSSLHandshake(SSLContextRef context) {
 }
 
 static NSURLRequest *ASFXFinalRewrite(NSURLRequest *request) {
-    if ([[[request URL] path] rangeOfString:@"/WebObjects/MZFinance.woa/wa/authenticate"].location == NSNotFound) return request;
+    NSString *absolute = [[request URL] absoluteString];
+    if ([absolute hasPrefix:@"https://buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/freeProductCodeWizard"]) {
+        NSMutableURLRequest *newReq = [request mutableCopy];
+        [newReq setValue:@"iTunes/12.6.2 (Macintosh; OS X 10.9.5) AppleWebKit/625.2.8.11.9.1" forHTTPHeaderField:@"User-Agent"];
+        NSLog(@"[AppStoreFix] User-Agent set for freeProductCodeWizard");
+        return newReq;
+    }
+    if ([[[request URL] path] rangeOfString:@"/WebObjects/MZFinance.woa/wa/authenticate"].location != NSNotFound) return request;
     NSLog(@"[AppStoreFix] final req: %@ %@ %@", [request HTTPMethod], [request URL], [request allHTTPHeaderFields]);
     return ASFXRewriteAuthenticateRequest([request mutableCopy]);
 }
