@@ -63,6 +63,15 @@ Older Store clients still request Store domains, paths, storefront resources, an
 
 ## Changelog
 
+### Version 3.1
+
+- Signing in to the App Store on iOS 6.0.1 and earlier should work now. If you see "Cannot connect to iTunes Store", just try again a few times.
+- Small changes to the redeem page.
+- The sign in fix is now up to date with NewerStoreLoginFix.
+- Cleaned up the code behind the sign in fix.
+
+Thanks to Pod for all of these changes!
+
 ### Version 3.0.1
 
 - This update fixes the Settings bundle on iOS 5.
