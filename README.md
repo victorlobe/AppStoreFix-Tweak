@@ -63,6 +63,10 @@ Older Store clients still request Store domains, paths, storefront resources, an
 
 ## Changelog
 
+### Version 3.1.2
+
+- Added a package Icon.
+
 ### Version 3.1.1
 
 - Signing in to the App Store now works on iOS 6.0.x.
