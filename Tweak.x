@@ -68,6 +68,9 @@ static NSURLRequest *ASFXFinalRewrite(NSURLRequest *request) {
 
 - (id)valueForKey:(NSString *)key {
 	id value = %orig;
+	if (ASFXDefaultStoreFront() == nil) {
+		ASFXRememberBagStoreFront([key isEqualToString:@"storeFrontId"] ? value : %orig(@"storeFrontId"));
+	}
 	if ([key isEqualToString:@"authenticateAccount"] && [value isKindOfClass:[NSString class]] && ![value hasSuffix:@"/"]) {
 		return [value stringByAppendingString:@"/"];
 	}
@@ -161,6 +164,9 @@ static NSURLRequest *ASFXFinalRewrite(NSURLRequest *request) {
 
 - (NSString *)storeFrontIdentifier {
     NSString *storeFront = %orig;
+    if (storeFront == nil) {
+        storeFront = ASFXDefaultStoreFront();
+    }
     return ASFXRepairStoreFront(storeFront);
 }
 
