@@ -63,6 +63,11 @@ Older Store clients still request Store domains, paths, storefront resources, an
 
 ## Changelog
 
+### Version 3.1.1
+
+- Signing in to the App Store now works on iOS 6.0.x.
+- Featured no longer shows the "Apple no longer provides this content" message when you're not signed in.
+
 ### Version 3.1
 
 - Signing in to the App Store on iOS 6.0.1 and earlier should work now. If you see "Cannot connect to iTunes Store", just try again a few times.

@@ -81,6 +81,36 @@ NSString *ASFXRepairStoreFront(NSString *storeFront) {
     return [storeFront stringByReplacingCharactersInRange:platform withString:ASFXNativeStoreFrontPlatform()];
 }
 
+// no storefront when signed out results in empty pages, so just use the one from the bag
+static NSString *ASFXBagStoreFrontID;
+
+void ASFXRememberBagStoreFront(id value) {
+    if ([value isKindOfClass:[NSNumber class]]) {
+        value = [value stringValue];
+    }
+    if (![value isKindOfClass:[NSString class]] || [value length] == 0) {
+        return;
+    }
+
+    @synchronized([NSString class]) {
+        if ([value isEqualToString:ASFXBagStoreFrontID]) {
+            return;
+        }
+        ASFXBagStoreFrontID = [value copy];
+    }
+    NSLog(@"[AppStoreFix] default storefront from URL bag: %@", value);
+}
+
+NSString *ASFXDefaultStoreFront(void) {
+    NSString *storeFrontID;
+    @synchronized([NSString class]) {
+        storeFrontID = ASFXBagStoreFrontID;
+    }
+    return storeFrontID ? [storeFrontID stringByAppendingString:ASFXNativeStoreFrontPlatform()] : nil;
+}
+
+
+
 NSMutableURLRequest *ASFXPrepareStoreRequest(NSMutableURLRequest *request) {
     if (![request isKindOfClass:[NSMutableURLRequest class]]) {
         return request;
@@ -118,6 +148,11 @@ NSMutableURLRequest *ASFXPrepareStoreRequest(NSMutableURLRequest *request) {
         [request setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
     }
 
+    // 6.1+ adds the signature later, so only rewrite the old (6.0 and older) requests here
+    NSString *contentType = [request valueForHTTPHeaderField:@"Content-Type"];
+    if ([[request HTTPMethod] isEqualToString:@"GET"] || [contentType hasPrefix:@"multipart/form-data"]) {
+        return ASFXRewriteAuthenticateRequest(request);
+    }
     return request;
 }
 
@@ -142,6 +177,52 @@ static NSData *ASFXPlistDataFromQuery(NSString *query) {
     return [NSPropertyListSerialization dataFromPropertyList:dict format:NSPropertyListXMLFormat_v1_0 errorDescription:&error];
 }
 
+
+static NSData *ASFXPlistDataFromMultipart(NSData *body, NSString *contentType) {
+    NSRange boundaryRange = [contentType rangeOfString:@"boundary="];
+    if (boundaryRange.location == NSNotFound) {
+        return nil;
+    }
+
+    NSString *boundary = [contentType substringFromIndex:NSMaxRange(boundaryRange)];
+    boundary = [boundary stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"\" "]];
+    NSString *text = [[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding];
+    if ([boundary length] == 0 || text == nil) {
+        return nil;
+    }
+
+    NSMutableDictionary *dict = [NSMutableDictionary dictionary];
+    NSString *separator = [@"--" stringByAppendingString:boundary];
+    for (NSString *part in [text componentsSeparatedByString:separator]) {
+        NSRange headerEnd = [part rangeOfString:@"\r\n\r\n"];
+        NSRange nameStart = [part rangeOfString:@"name=\""];
+        if (headerEnd.location == NSNotFound || nameStart.location == NSNotFound || nameStart.location > headerEnd.location) {
+            continue;
+        }
+
+        NSUInteger start = NSMaxRange(nameStart);
+        NSRange nameEnd = [part rangeOfString:@"\"" options:0 range:NSMakeRange(start, headerEnd.location - start)];
+        if (nameEnd.location == NSNotFound) {
+            continue;
+        }
+
+        NSString *name = [part substringWithRange:NSMakeRange(start, nameEnd.location - start)];
+        NSString *value = [part substringFromIndex:NSMaxRange(headerEnd)];
+        if ([value hasSuffix:@"\r\n"]) {
+            value = [value substringToIndex:[value length] - 2];
+        }
+        if ([name length] != 0) {
+            [dict setObject:value forKey:name];
+        }
+    }
+    if ([dict count] == 0) {
+        return nil;
+    }
+
+    NSString *error = nil;
+    return [NSPropertyListSerialization dataFromPropertyList:dict format:NSPropertyListXMLFormat_v1_0 errorDescription:&error];
+}
+
 NSMutableURLRequest *ASFXRewriteAuthenticateRequest(NSMutableURLRequest *request) {
     if (![request isKindOfClass:[NSMutableURLRequest class]]) return request;
     NSURL *url = [request URL];
@@ -149,11 +230,18 @@ NSMutableURLRequest *ASFXRewriteAuthenticateRequest(NSMutableURLRequest *request
     if ([request valueForHTTPHeaderField:@"X-Apple-ActionSignature"] != nil) return request;
     NSString *method = [request HTTPMethod];
     NSString *query = [url query];
+    NSString *contentType = [request valueForHTTPHeaderField:@"Content-Type"];
     [request setURL:[NSURL URLWithString:@"https://auth.itunes.apple.com/auth/v1/native/fast"]];
     if ([method isEqualToString:@"GET"]) {
         [request setHTTPMethod:@"POST"];
         [request setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
         [request setHTTPBody:ASFXPlistDataFromQuery(query)];
+    } else if ([contentType hasPrefix:@"multipart/form-data"]) {
+        NSData *plist = ASFXPlistDataFromMultipart([request HTTPBody], contentType);
+        if (plist != nil) {
+            [request setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
+            [request setHTTPBody:plist];
+        }
     }
     NSLog(@"[AppStoreFix] authenticate rewritten to %@ (method=%@ bodyLen=%lu)", [request URL], [request HTTPMethod], (unsigned long)[[request HTTPBody] length]);
     return request;
